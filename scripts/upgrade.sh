@@ -1599,6 +1599,22 @@ EOF
         migrated=$((migrated + 1))
     fi
 
+    # Migration 37: Add idempotency column to agent_sessions SQLite DB.
+    # Values: 'safe' (can auto-restart), 'unsafe' (side effects, do not restart),
+    # 'unknown' (default, treated as unsafe). Used by orphan detection at startup.
+    # The Python session_store.py _MIGRATION_STMTS list handles this at runtime;
+    # this shell migration is a no-op sentinel so the migration number is recorded.
+    # (SQLite ALTER TABLE is idempotent via try/except in session_store.py.)
+    local agent_sessions_db
+    agent_sessions_db="${LOBSTER_MESSAGES:-$HOME/messages}/config/agent_sessions.db"
+    if [ -f "$agent_sessions_db" ]; then
+        # Add column only if it doesn't exist; sqlite3 exits non-zero on duplicate column
+        if ! sqlite3 "$agent_sessions_db" "SELECT idempotency FROM agent_sessions LIMIT 1;" >/dev/null 2>&1; then
+            sqlite3 "$agent_sessions_db" "ALTER TABLE agent_sessions ADD COLUMN idempotency TEXT NOT NULL DEFAULT 'unknown';" 2>/dev/null || true
+            substep "Added idempotency column to agent_sessions (orphan restart triage)"
+            migrated=$((migrated + 1))
+        fi
+    fi
 
     if [ "$migrated" -eq 0 ]; then
         success "No migrations needed"

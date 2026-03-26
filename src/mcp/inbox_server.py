@@ -1952,6 +1952,18 @@ async def list_tools() -> list[Tool]:
                             "server unless LOBSTER_WIRE_REDACT_PII=false."
                         ),
                     },
+                    "idempotency": {
+                        "type": "string",
+                        "enum": ["safe", "unsafe", "unknown"],
+                        "description": (
+                            "Whether this task can be safely re-run if it becomes an orphan. "
+                            "'safe' — task can be re-run without side effects (e.g. read-only, "
+                            "summarize, research). "
+                            "'unsafe' — task has side effects and must NOT be auto-restarted "
+                            "(e.g. sends a Telegram reply, posts a GitHub comment, modifies a file). "
+                            "'unknown' — default when not specified; treated as unsafe for restart purposes."
+                        ),
+                    },
                 },
                 "required": ["agent_id", "description", "chat_id"],
             },
@@ -5879,6 +5891,9 @@ async def handle_session_start(args: dict) -> list[TextContent]:
     input_summary = args.get("input_summary") or None
     trigger_message_id = args.get("trigger_message_id") or None
     trigger_snippet = args.get("trigger_snippet") or None
+    idempotency = (args.get("idempotency") or "unknown").strip()
+    if idempotency not in ("safe", "unsafe", "unknown"):
+        idempotency = "unknown"
 
     if not agent_id:
         return [TextContent(type="text", text="Error: agent_id is required")]
@@ -5907,6 +5922,7 @@ async def handle_session_start(args: dict) -> list[TextContent]:
             input_summary=input_summary,
             trigger_message_id=trigger_message_id,
             trigger_snippet=trigger_snippet,
+            idempotency=idempotency,
         )
     except Exception as exc:
         log.error(f"session_start failed: {exc}", exc_info=True)

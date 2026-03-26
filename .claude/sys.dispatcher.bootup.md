@@ -129,6 +129,13 @@ Before spawning a subagent, decide whether to send the dispatcher ack based on e
 
 Agent registration is fully automatic — a PostToolUse hook fires immediately after each Task call and inserts a 'running' row into agent_sessions.db. You do not need to call register_agent or extract agentId/output_file.
 
+**Set `idempotency` when spawning subagents** so orphan detection can make safe restart decisions:
+- `'safe'` — task has no side effects and can be re-run (read-only work, research, summarization, analysis)
+- `'unsafe'` — task would send messages, post comments, modify files, or otherwise have side effects
+- `'unknown'` — default; treated as unsafe for restart purposes
+
+Pass `idempotency` as a field in the prompt frontmatter. The PostToolUse hook reads it and stores it in agent_sessions.
+
 **Alternative (still valid, use when no ack needed):**
 ```
 1. mark_processing(message_id)   # claim without ack
@@ -980,7 +987,35 @@ last_catchup_ts in compaction-state.json, then call write_result.
 
 > **Note:** The startup result handler is the only one that updates `handoff.md`. Post-compaction catchup runs more frequently and operates on shorter windows; updating `handoff.md` on every compaction would create noise. Startup gaps can span hours, making notable changes more likely to be worth persisting.
 
-**When the startup `compact-catchup` result arrives** (as `subagent_result` with `task_id: "startup-catchup"` and `chat_id: 0`): read `msg["text"]` for situational awareness and update `handoff.md` if anything notable changed (failed subagents, open threads, etc.). Do NOT relay to the user — this is internal context only. Run `~/lobster/scripts/record-catchup-state.sh finish` to lift WFM suppression, then `mark_processed`.
+**When the startup `compact-catchup` result arrives** (as `subagent_result` with `task_id: "startup-catchup"` and `chat_id: 0`): read `msg["text"]` for situational awareness and update `handoff.md` if anything notable changed (failed subagents, open threads, etc.). Do NOT relay to the user — this is internal context only. Run `~/lobster/scripts/record-catchup-state.sh finish` to lift WFM suppression, then run orphan detection (step 5b below), then `mark_processed`.
+
+**Step 5b: Orphan detection** (runs after startup compact-catchup result arrives):
+
+Call `get_active_sessions()` and triage any sessions with `status = 'running'` whose `spawned_at` predates this startup (i.e., they are from a previous run, not the current one):
+
+**Case A: `completed_at` is set but `status` is still `'running'`**
+The agent completed but the DB was not updated. Mark as complete: call `session_end(agent_id, status='completed')`. No restart. Log it.
+
+**Case B: `idempotency = 'safe'`**
+Re-spawn using the stored `input_summary` as the prompt basis. Log the restart. If the original task was user-facing (`chat_id` != 0), notify the user: `"Restarting task that was interrupted: <description>."`
+
+**Case C: `idempotency = 'unsafe'` or `'unknown'`**
+Do NOT auto-restart. Record the orphan in the current session note (Open Subagents section, via a background subagent). Send user a brief notification:
+`"One task was interrupted and not restarted (unsafe to auto-restart): <description>. Reply 'rerun <task_id>' if you want me to try again."`
+Only notify if the session had a real user (`chat_id` != 0).
+
+**Case D: `input_summary` is missing** (cannot reconstruct the prompt)
+Cannot restart even if safe. Log it. Notify user if `chat_id` != 0 (same message as Case C).
+
+**Task-id prefix heuristic (fallback for rows where `idempotency` was not set)**:
+- Prefixes `read-`, `summarize-`, `research-`, `analyze-`, `review-`, `catchup-`, `digest-` — treat as `safe`
+- Prefixes `send-`, `post-`, `reply-`, `create-`, `update-`, `delete-`, `write-`, `file-` — treat as `unsafe`
+- Anything else — treat as `unknown`
+
+**Rules:**
+- Only triage sessions whose `spawned_at` is before this startup. Sessions started in the current run are not orphans.
+- Do not triage sessions with `agent_type = 'dispatcher'` — those are always stale dispatcher sessions and are handled by the hook layer.
+- Orphan detection happens once per startup, after compact-catchup result arrives. Do not run it again in the same session.
 
 **Why triage at startup?** A dangerous message (e.g. a large audio transcription that causes OOM) can crash Lobster and land back in the retry queue. On the next boot, Lobster hits it again — crash loop. The fix is to survey all queued messages first, identify anything risky, and handle them carefully or defer them. Part of the failsafe is looking at the full picture before acting.
 
