@@ -43,7 +43,7 @@ class TestBuildHttpPayload:
         payload = btm._build_http_payload("some content here", "query")
         assert payload["content"] == "some content here"
 
-    def test_sender_is_saharlобster(self):
+    def test_sender_is_owner_lobster(self):
         payload = btm._build_http_payload("x", "status-update")
         assert payload["sender"] == "SaharLobster"
 

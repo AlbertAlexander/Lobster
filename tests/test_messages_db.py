@@ -227,14 +227,14 @@ class TestBuildBisqueEventRow:
         record = {
             "id": "bisque_123",
             "source": "bisque",
-            "chat_id": "drew@lobster.ai",
+            "chat_id": "owner@lobster.ai",
             "type": "text",
             "text": "Hello from bisque",
             "timestamp": "2026-03-19T09:33:49.129780+00:00",
         }
         row = build_bisque_event_row(record)
         assert row["id"] == "bisque_123"
-        assert row["chat_id"] == "drew@lobster.ai"
+        assert row["chat_id"] == "owner@lobster.ai"
         assert row["type"] == "text"
         assert row["text"] == "Hello from bisque"
 
@@ -404,7 +404,7 @@ class TestMigrateDirectory:
             {
                 "id": "bisque001",
                 "source": "bisque",
-                "chat_id": "drew@lobster.ai",
+                "chat_id": "owner@lobster.ai",
                 "type": "text",
                 "text": "Bisque message",
                 "timestamp": "2026-01-01T00:00:02",
@@ -418,7 +418,7 @@ class TestMigrateDirectory:
             "SELECT * FROM bisque_events WHERE id = 'bisque001'"
         ).fetchone()
         assert row is not None
-        assert row["chat_id"] == "drew@lobster.ai"
+        assert row["chat_id"] == "owner@lobster.ai"
 
     def test_idempotent_migration(self, tmp_dir):
         write_json(

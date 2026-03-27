@@ -341,7 +341,7 @@ function startBridge() {
                 console.error('[SESSION] Could not delete session:', e.message);
             }
 
-            // Notify Drew via the event bus
+            // Notify owner via the event bus
             emitSystemEvent(
                 'session_expired',
                 'Session expired — QR scan required. Restart the service: sudo systemctl restart lobster-whatsapp-bridge'
